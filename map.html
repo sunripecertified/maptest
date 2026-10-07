@@ -233,7 +233,7 @@
       "coordinatePoint",
     ];
 
-    const KEY_STORAGE = "googleMapsApiKey";
+    const API_KEY = "";
 
     function randomFloridaCenter() {
       const anchor = FLORIDA_ANCHORS[Math.floor(Math.random() * FLORIDA_ANCHORS.length)];
@@ -244,42 +244,17 @@
       };
     }
 
-    function storageGet(key) {
-      try {
-        return localStorage.getItem(key) || "";
-      } catch (error) {
-        return "";
-      }
-    }
-
-    function storageSet(key, value) {
-      try {
-        localStorage.setItem(key, value);
-      } catch (error) {
-        /* Private browsing can block storage. The key still works for this page load. */
-      }
-    }
-
-    function storageRemove(key) {
-      try {
-        localStorage.removeItem(key);
-      } catch (error) {
-        /* Ignore storage failures. */
-      }
-    }
-
     function readInitialKey() {
       const params = new URLSearchParams(location.search);
       const fromQuery = (params.get("key") || params.get("apiKey") || "").trim();
       if (fromQuery) {
-        storageSet(KEY_STORAGE, fromQuery);
         params.delete("key");
         params.delete("apiKey");
         const next = params.toString();
         history.replaceState(null, "", next ? `${location.pathname}?${next}` : location.pathname);
         return fromQuery;
       }
-      return storageGet(KEY_STORAGE).trim();
+      return API_KEY;
     }
 
     function formatPair(point) {
@@ -334,8 +309,6 @@
           const center = randomFloridaCenter();
           const zoom = 12;
           const apiKey = ref(readInitialKey());
-          const keyDraft = ref(apiKey.value);
-          const keyError = ref("");
           const mapEnabled = ref(Boolean(apiKey.value));
           const mapRef = ref(null);
           const polygons = ref([]);
@@ -346,9 +319,6 @@
           let draw = null;
 
           const hint = computed(() => {
-            if (!mapEnabled.value) {
-              return "Enter a Google Maps JavaScript API key to load the map. Then click the map to draw a boundary.";
-            }
             if (drawError.value) return drawError.value;
             if (!drawingReady.value) return "Loading the map and Terra Draw…";
             if (mode.value === "select") {
@@ -461,31 +431,6 @@
             }
           );
 
-          function saveKey() {
-            const next = keyDraft.value.trim();
-            if (next.length < 10) {
-              keyError.value = "Enter a Google Maps JavaScript API key.";
-              return;
-            }
-            keyError.value = "";
-            storageSet(KEY_STORAGE, next);
-            if (mapEnabled.value && next !== apiKey.value) {
-              location.reload();
-              return;
-            }
-            apiKey.value = next;
-            mapEnabled.value = true;
-          }
-
-          function changeKey() {
-            storageRemove(KEY_STORAGE);
-            const url = new URL(location.href);
-            url.searchParams.delete("key");
-            url.searchParams.delete("apiKey");
-            history.replaceState(null, "", url.pathname + url.search + url.hash);
-            location.reload();
-          }
-
           function newCenter() {
             location.reload();
           }
@@ -528,8 +473,6 @@
             center,
             zoom,
             apiKey,
-            keyDraft,
-            keyError,
             mapEnabled,
             mapRef,
             polygons,
@@ -541,8 +484,6 @@
             pointCount,
             formatPair,
             closesRing,
-            saveKey,
-            changeKey,
             newCenter,
             setDrawMode,
             clearBoundary,
@@ -560,17 +501,7 @@
                 <span>Map center <code>{{ formatPair(center) }}</code></span>
                 <button type="button" class="secondary" @click="newCenter">New Florida center</button>
               </div>
-              <form v-if="!mapEnabled" class="key-row" @submit.prevent="saveKey">
-                <label for="api-key">Google Maps API key</label>
-                <input id="api-key" v-model="keyDraft" type="text" autocomplete="off" spellcheck="false" placeholder="AIza..." />
-                <button type="submit">Load map</button>
-              </form>
-              <div v-else class="key-row">
-                <span class="key-note">API key saved in this browser.</span>
-                <button type="button" class="secondary" @click="changeKey">Change key</button>
-              </div>
-              <p v-if="keyError" class="error">{{ keyError }}</p>
-              <p class="key-note">Open this file from a local web server. The Maps JavaScript API does not load from a file:// address. The key must allow this page's origin.</p>
+              <p class="key-note">Open this file from a local web server. The Maps JavaScript API does not load from a file:// address.</p>
             </header>
 
             <section class="panel points" aria-live="polite">
