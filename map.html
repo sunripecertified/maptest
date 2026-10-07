@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Florida polygon map</title>
+  <link rel="icon" href="data:," />
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f3efe6;
+      --ink: #1c1917;
+      --muted: #57534e;
+      --line: #e6dfd2;
+      --panel: #fffdf8;
+      --accent: #0f5c56;
+      --accent-ink: #ffffff;
+      --danger: #9f1239;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.45;
+    }
+
+    main {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 28px 20px 36px;
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 1.7rem;
+      letter-spacing: -0.03em;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 1.05rem;
+    }
+
+    p { margin: 0; }
+
+    .lede,
+    .hint,
+    .key-note,
+    .status {
+      color: var(--muted);
+    }
+
+    header {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .center-row,
+    .key-row,
+    .toolbar,
+    .list-head {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+      align-items: center;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+
+    .points {
+      display: grid;
+      gap: 10px;
+    }
+
+    .coords {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      max-height: 220px;
+      overflow: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92rem;
+    }
+
+    .coords li {
+      display: flex;
+      gap: 12px;
+      align-items: baseline;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .idx {
+      width: 2.2ch;
+      color: var(--muted);
+    }
+
+    .note {
+      color: var(--accent);
+      font-family: "Segoe UI", system-ui, sans-serif;
+      font-size: 0.82rem;
+    }
+
+    .ring + .ring {
+      margin-top: 8px;
+    }
+
+    .ring h3 {
+      margin: 0 0 4px;
+      font-size: 0.92rem;
+    }
+
+    label {
+      font-weight: 650;
+    }
+
+    input[type="text"] {
+      flex: 1 1 240px;
+      min-width: 0;
+      border: 1px solid #d6d3d1;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font: inherit;
+      background: white;
+    }
+
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font: inherit;
+      background: var(--accent);
+      color: var(--accent-ink);
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: transparent;
+      color: var(--ink);
+      border: 1px solid #c9bfae;
+    }
+
+    button.active {
+      outline: 2px solid #115e59;
+      outline-offset: 1px;
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .error {
+      color: var(--danger);
+    }
+
+    .map-panel {
+      margin-top: 16px;
+      height: min(70vh, 680px);
+      min-height: 420px;
+      border: 1px solid #d9d0c1;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #d7e4ea;
+    }
+
+    .map-panel .map-root,
+    .map-placeholder {
+      width: 100%;
+      height: 100%;
+    }
+
+    .map-placeholder {
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      text-align: center;
+      color: var(--muted);
+    }
+
+    #boot-error {
+      margin: 24px;
+      color: var(--danger);
+    }
+  </style>
+</head>
+<body>
+  <p id="boot-error" hidden>
+    Vue, vue3-google-map, or Terra Draw did not load. Check the network connection and reload.
+  </p>
+  <div id="app"></div>
+  <noscript>This page needs JavaScript to load the map.</noscript>
+
+  <script src="https://unpkg.com/vue@3.5.43/dist/vue.global.prod.js"></script>
+  <script src="https://unpkg.com/vue3-google-map@0.27.2/dist/index.umd.js"></script>
+  <script src="https://unpkg.com/terra-draw@1.37.0/dist/terra-draw.umd.js"></script>
+  <script src="https://unpkg.com/terra-draw-google-maps-adapter@1.7.0/dist/terra-draw-google-maps-adapter.umd.js"></script>
+  <script>
+    const FLORIDA_ANCHORS = [
+      { lat: 30.4213, lng: -87.2169 },
+      { lat: 30.1588, lng: -85.6602 },
+      { lat: 30.4383, lng: -84.2807 },
+      { lat: 30.1897, lng: -82.6393 },
+      { lat: 30.3322, lng: -81.6557 },
+      { lat: 29.6516, lng: -82.3248 },
+      { lat: 29.1872, lng: -82.1401 },
+      { lat: 29.2108, lng: -81.0228 },
+      { lat: 28.5383, lng: -81.3792 },
+      { lat: 28.0395, lng: -81.9498 },
+      { lat: 27.9506, lng: -82.4572 },
+      { lat: 27.3364, lng: -82.5307 },
+      { lat: 26.6406, lng: -81.8723 },
+      { lat: 26.142, lng: -81.7948 },
+      { lat: 26.7153, lng: -80.0534 },
+      { lat: 25.7617, lng: -80.1918 },
+    ];
+
+    const HELPER_FLAGS = [
+      "midPoint",
+      "selectionPoint",
+      "closingPoint",
+      "snappingPoint",
+      "coordinatePoint",
+    ];
+
+    const API_KEY = "";
+
+    function randomFloridaCenter() {
+      const anchor = FLORIDA_ANCHORS[Math.floor(Math.random() * FLORIDA_ANCHORS.length)];
+      const jitter = 0.05;
+      return {
+        lat: anchor.lat + (Math.random() - 0.5) * jitter,
+        lng: anchor.lng + (Math.random() - 0.5) * jitter,
+      };
+    }
+
+    function readInitialKey() {
+      const params = new URLSearchParams(location.search);
+      const fromQuery = (params.get("key") || params.get("apiKey") || "").trim();
+      if (fromQuery) {
+        params.delete("key");
+        params.delete("apiKey");
+        const next = params.toString();
+        history.replaceState(null, "", next ? `${location.pathname}?${next}` : location.pathname);
+        return fromQuery;
+      }
+      return API_KEY;
+    }
+
+    function formatPair(point) {
+      return `${point.lng.toFixed(6)}, ${point.lat.toFixed(6)}`;
+    }
+
+    function closesRing(ring, index) {
+      if (ring.length < 4 || index !== ring.length - 1) return false;
+      const first = ring[0];
+      const last = ring[index];
+      return Math.abs(first.lng - last.lng) < 1e-8 && Math.abs(first.lat - last.lat) < 1e-8;
+    }
+
+    function polygonRings(snapshot) {
+      if (!Array.isArray(snapshot)) return [];
+      const rings = [];
+      for (const feature of snapshot) {
+        const properties = feature && feature.properties ? feature.properties : {};
+        if (!feature || !feature.geometry || feature.geometry.type !== "Polygon") continue;
+        if (HELPER_FLAGS.some((flag) => properties[flag])) continue;
+        const ring = feature.geometry.coordinates && feature.geometry.coordinates[0];
+        if (!Array.isArray(ring)) continue;
+        const committed = properties.committedCoordinateCount;
+        const positions = Number.isInteger(committed) ? ring.slice(0, committed) : ring;
+        const points = [];
+        for (const pair of positions) {
+          if (!Array.isArray(pair) || pair.length < 2) continue;
+          const lng = Number(pair[0]);
+          const lat = Number(pair[1]);
+          if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
+          points.push({ lng, lat });
+        }
+        if (points.length) rings.push(points);
+      }
+      return rings;
+    }
+
+    function sameRings(left, right) {
+      return JSON.stringify(left) === JSON.stringify(right);
+    }
+
+    const bootError = document.getElementById("boot-error");
+    if (!window.Vue || !window.Vue3GoogleMap || !window.terraDraw || !window.terraDrawGoogleMapsAdapter) {
+      bootError.hidden = false;
+    } else {
+      const { createApp, ref, computed, onBeforeUnmount, watch } = Vue;
+      const { GoogleMap } = Vue3GoogleMap;
+
+      createApp({
+        components: { GoogleMap },
+        setup() {
+          const center = randomFloridaCenter();
+          const zoom = 12;
+          const apiKey = ref(readInitialKey());
+          const mapEnabled = ref(Boolean(apiKey.value));
+          const mapRef = ref(null);
+          const polygons = ref([]);
+          const mode = ref("");
+          const drawingReady = ref(false);
+          const drawError = ref("");
+          const copyState = ref("");
+          let draw = null;
+
+          const hint = computed(() => {
+            if (drawError.value) return drawError.value;
+            if (!drawingReady.value) return "Loading the map and Terra Draw…";
+            if (mode.value === "select") {
+              return "Edit is on. Click a boundary, then drag its corners. The longitude, latitude list stays above the map.";
+            }
+            return "Draw is on. Click the map to add corners. Click the first corner, or press Enter, to close the boundary. Escape cancels the shape in progress.";
+          });
+
+          const pointCount = computed(() =>
+            polygons.value.reduce((total, ring) => total + ring.length, 0)
+          );
+
+          function syncPolygons() {
+            if (!draw) return;
+            const next = polygonRings(draw.getSnapshot());
+            if (!sameRings(next, polygons.value)) polygons.value = next;
+          }
+
+          function mapEventsReady(map) {
+            const mapDiv = map.getDiv && map.getDiv();
+            return Boolean(mapDiv && mapDiv.querySelector('div[style*="z-index: 3;"]'));
+          }
+
+          function createDraw(map, api) {
+            const mapDiv = map.getDiv && map.getDiv();
+            if (mapDiv && !mapDiv.id) mapDiv.id = "florida-map";
+
+            draw = new terraDraw.TerraDraw({
+              adapter: new terraDrawGoogleMapsAdapter.TerraDrawGoogleMapsAdapter({
+                lib: api,
+                map,
+                coordinatePrecision: 9,
+                isolatedData: true,
+              }),
+              modes: [
+                new terraDraw.TerraDrawPolygonMode({
+                  styles: {
+                    fillColor: "#0f5c56",
+                    fillOpacity: 0.28,
+                    outlineColor: "#0f5c56",
+                    outlineWidth: 2,
+                  },
+                }),
+                new terraDraw.TerraDrawSelectMode({
+                  flags: {
+                    polygon: {
+                      feature: {
+                        draggable: true,
+                        coordinates: {
+                          midpoints: true,
+                          draggable: true,
+                          deletable: true,
+                        },
+                      },
+                    },
+                  },
+                }),
+              ],
+            });
+
+            draw.on("change", syncPolygons);
+            draw.on("finish", syncPolygons);
+            draw.on("ready", () => {
+              drawingReady.value = true;
+              draw.setMode("polygon");
+              mode.value = "polygon";
+              drawError.value = "";
+            });
+            draw.start();
+          }
+
+          function scheduleDrawing(map, api) {
+            let settled = false;
+            const listener = api.event.addListener(map, "idle", attempt);
+            const timer = window.setTimeout(() => {
+              if (settled) return;
+              attempt(true);
+            }, 5000);
+
+            function attempt(force) {
+              if (settled || draw) return;
+              if (!map.getProjection || !map.getProjection()) return;
+              if (!force && !mapEventsReady(map)) return;
+              settled = true;
+              api.event.removeListener(listener);
+              window.clearTimeout(timer);
+              try {
+                createDraw(map, api);
+              } catch (error) {
+                drawError.value = error && error.message
+                  ? error.message
+                  : "Terra Draw could not attach to the map.";
+              }
+            }
+
+            attempt(false);
+          }
+
+          watch(
+            () => mapRef.value && mapRef.value.ready,
+            (ready) => {
+              if (!ready || draw) return;
+              const map = mapRef.value.map;
+              const api = mapRef.value.api;
+              if (!map || !api) {
+                drawError.value = "The map is not available yet.";
+                return;
+              }
+              scheduleDrawing(map, api);
+            }
+          );
+
+          function newCenter() {
+            location.reload();
+          }
+
+          function setDrawMode(next) {
+            if (!draw || !drawingReady.value) return;
+            draw.setMode(next);
+            mode.value = draw.getMode();
+          }
+
+          function clearBoundary() {
+            if (!draw || !drawingReady.value) return;
+            draw.clear();
+            polygons.value = [];
+            draw.setMode("polygon");
+            mode.value = "polygon";
+          }
+
+          async function copyPoints() {
+            const text = polygons.value
+              .map((ring) => ring.map(formatPair).join("\n"))
+              .join("\n\n");
+            if (!text) return;
+            try {
+              await navigator.clipboard.writeText(text);
+              copyState.value = "Copied";
+            } catch (error) {
+              copyState.value = "Copy failed";
+            }
+            window.setTimeout(() => {
+              copyState.value = "";
+            }, 1600);
+          }
+
+          onBeforeUnmount(() => {
+            if (draw) draw.stop();
+          });
+
+          return {
+            center,
+            zoom,
+            apiKey,
+            mapEnabled,
+            mapRef,
+            polygons,
+            mode,
+            drawingReady,
+            drawError,
+            copyState,
+            hint,
+            pointCount,
+            formatPair,
+            closesRing,
+            newCenter,
+            setDrawMode,
+            clearBoundary,
+            copyPoints,
+          };
+        },
+        template: `
+          <main>
+            <header>
+              <div>
+                <h1>Florida boundary</h1>
+                <p class="lede">A random place in Florida. Draw one polygon with Terra Draw and read its longitude, latitude corners here.</p>
+              </div>
+              <div class="center-row">
+                <span>Map center <code>{{ formatPair(center) }}</code></span>
+                <button type="button" class="secondary" @click="newCenter">New Florida center</button>
+              </div>
+              <p class="key-note">Open this file from a local web server. The Maps JavaScript API does not load from a file:// address.</p>
+            </header>
+
+            <section class="panel points" aria-live="polite">
+              <div class="list-head">
+                <h2>Longitude, latitude</h2>
+                <span class="status">{{ pointCount }} coordinate{{ pointCount === 1 ? '' : 's' }}</span>
+                <button type="button" class="secondary" :disabled="pointCount === 0" @click="copyPoints">
+                  {{ copyState || 'Copy list' }}
+                </button>
+              </div>
+              <p class="hint">{{ hint }}</p>
+              <p v-if="polygons.length === 0" class="status">No boundary yet.</p>
+              <div v-for="(ring, ringIndex) in polygons" :key="ringIndex" class="ring">
+                <h3 v-if="polygons.length > 1">Polygon {{ ringIndex + 1 }}</h3>
+                <ol class="coords">
+                  <li v-for="(point, pointIndex) in ring" :key="pointIndex">
+                    <span class="idx">{{ pointIndex + 1 }}</span>
+                    <code>{{ formatPair(point) }}</code>
+                    <span v-if="closesRing(ring, pointIndex)" class="note">closes the boundary</span>
+                  </li>
+                </ol>
+              </div>
+              <div class="toolbar">
+                <button type="button" :class="{ active: mode === 'polygon' }" :disabled="!drawingReady" @click="setDrawMode('polygon')">Draw polygon</button>
+                <button type="button" :class="{ active: mode === 'select' }" :disabled="!drawingReady" @click="setDrawMode('select')">Edit</button>
+                <button type="button" class="secondary" :disabled="!drawingReady || pointCount === 0" @click="clearBoundary">Clear</button>
+              </div>
+            </section>
+
+            <section class="map-panel" aria-label="Map">
+              <GoogleMap
+                v-if="mapEnabled"
+                ref="mapRef"
+                class="map-root"
+                :api-key="apiKey"
+                :center="center"
+                :zoom="zoom"
+                region="US"
+                language="en"
+                :clickable-icons="false"
+                gesture-handling="greedy"
+                map-type-id="roadmap"
+              />
+              <p v-else class="map-placeholder">The map loads here after an API key is saved.</p>
+            </section>
+          </main>
+        `,
+      }).mount("#app");
+    }
+  </script>
+</body>
+</html>
