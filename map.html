@@ -124,14 +124,31 @@
       font-weight: 650;
     }
 
-    input[type="text"] {
-      flex: 1 1 240px;
-      min-width: 0;
+    input[type="text"],
+    textarea {
       border: 1px solid #d6d3d1;
       border-radius: 8px;
       padding: 8px 10px;
-      font: inherit;
       background: white;
+    }
+
+    input[type="text"] {
+      flex: 1 1 240px;
+      min-width: 0;
+      font: inherit;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 7.5rem;
+      resize: vertical;
+      font: 0.92rem/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .add-polygon {
+      display: grid;
+      gap: 8px;
+      justify-items: start;
     }
 
     button {
@@ -201,11 +218,25 @@
   <div id="app"></div>
   <noscript>This page needs JavaScript to load the map.</noscript>
 
-  <script src="https://unpkg.com/vue@3.5.43/dist/vue.global.prod.js"></script>
-  <script src="https://unpkg.com/vue3-google-map@0.27.2/dist/index.umd.js"></script>
-  <script src="https://unpkg.com/terra-draw@1.37.0/dist/terra-draw.umd.js"></script>
-  <script src="https://unpkg.com/terra-draw-google-maps-adapter@1.7.0/dist/terra-draw-google-maps-adapter.umd.js"></script>
-  <script>
+  <script type="importmap">
+    {
+      "imports": {
+        "vue": "https://unpkg.com/vue@3.5.43/dist/vue.esm-browser.prod.js",
+        "vue3-google-map": "https://unpkg.com/vue3-google-map@0.27.2/dist/index.mjs",
+        "terra-draw": "https://unpkg.com/terra-draw@1.37.0/dist/terra-draw.modern.js",
+        "terra-draw-google-maps-adapter": "https://unpkg.com/terra-draw-google-maps-adapter@1.7.0/dist/terra-draw-google-maps-adapter.modern.js"
+      }
+    }
+  </script>
+  <script type="module">
+    globalThis.process = { env: { NODE_ENV: "production" } };
+  </script>
+  <script type="module" onerror="document.getElementById('boot-error').hidden = false">
+    import { createApp, ref, computed, onBeforeUnmount, watch, nextTick } from "vue";
+    import { GoogleMap } from "vue3-google-map";
+    import { TerraDraw, TerraDrawPolygonMode, TerraDrawSelectMode } from "terra-draw";
+    import { TerraDrawGoogleMapsAdapter } from "terra-draw-google-maps-adapter";
+
     const FLORIDA_ANCHORS = [
       { lat: 30.4213, lng: -87.2169 },
       { lat: 30.1588, lng: -85.6602 },
@@ -233,7 +264,7 @@
       "coordinatePoint",
     ];
 
-    const API_KEY = "";
+    const KEY_STORAGE = "googleMapsApiKey";
 
     function randomFloridaCenter() {
       const anchor = FLORIDA_ANCHORS[Math.floor(Math.random() * FLORIDA_ANCHORS.length)];
@@ -244,6 +275,23 @@
       };
     }
 
+    function readStoredKey() {
+      try {
+        return (localStorage.getItem(KEY_STORAGE) || "").trim();
+      } catch (error) {
+        return "";
+      }
+    }
+
+    function storeKey(value) {
+      try {
+        if (value) localStorage.setItem(KEY_STORAGE, value);
+        else localStorage.removeItem(KEY_STORAGE);
+      } catch (error) {
+        return;
+      }
+    }
+
     function readInitialKey() {
       const params = new URLSearchParams(location.search);
       const fromQuery = (params.get("key") || params.get("apiKey") || "").trim();
@@ -252,9 +300,10 @@
         params.delete("apiKey");
         const next = params.toString();
         history.replaceState(null, "", next ? `${location.pathname}?${next}` : location.pathname);
+        storeKey(fromQuery);
         return fromQuery;
       }
-      return API_KEY;
+      return readStoredKey();
     }
 
     function formatPair(point) {
@@ -296,19 +345,51 @@
       return JSON.stringify(left) === JSON.stringify(right);
     }
 
-    const bootError = document.getElementById("boot-error");
-    if (!window.Vue || !window.Vue3GoogleMap || !window.terraDraw || !window.terraDrawGoogleMapsAdapter) {
-      bootError.hidden = false;
-    } else {
-      const { createApp, ref, computed, onBeforeUnmount, watch } = Vue;
-      const { GoogleMap } = Vue3GoogleMap;
+    function pointsFromCoordinateText(text) {
+      const points = [];
+      for (const line of text.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const parts = trimmed.split(/[,\s]+/).filter(Boolean);
+        if (parts.length < 2) throw new Error("Each line needs a longitude and a latitude.");
+        const lng = Number(parts[0]);
+        const lat = Number(parts[1]);
+        if (!Number.isFinite(lng) || !Number.isFinite(lat) || lng < -180 || lng > 180 || lat < -90 || lat > 90) {
+          throw new Error("Each line needs a longitude and a latitude.");
+        }
+        points.push({ lng, lat });
+      }
+      return points;
+    }
 
-      createApp({
+    function closedRing(points) {
+      const coordinates = points.map((point) => [Number(point.lng), Number(point.lat)]);
+      const first = coordinates[0];
+      const last = coordinates[coordinates.length - 1];
+      if (first[0] !== last[0] || first[1] !== last[1]) coordinates.push([first[0], first[1]]);
+      return coordinates;
+    }
+
+    function featureFromRing(points) {
+      const unique = new Set(points.map((point) => `${Number(point.lng)},${Number(point.lat)}`));
+      if (unique.size < 3) throw new Error("A polygon needs at least three corners.");
+      return {
+        type: "Feature",
+        geometry: {
+          type: "Polygon",
+          coordinates: [closedRing(points)],
+        },
+        properties: { mode: "polygon" },
+      };
+    }
+
+    createApp({
         components: { GoogleMap },
         setup() {
           const center = randomFloridaCenter();
           const zoom = 12;
           const apiKey = ref(readInitialKey());
+          const apiKeyDraft = ref(apiKey.value);
           const mapEnabled = ref(Boolean(apiKey.value));
           const mapRef = ref(null);
           const polygons = ref([]);
@@ -316,6 +397,8 @@
           const drawingReady = ref(false);
           const drawError = ref("");
           const copyState = ref("");
+          const polygonInput = ref("");
+          const addError = ref("");
           let draw = null;
 
           const hint = computed(() => {
@@ -346,15 +429,15 @@
             const mapDiv = map.getDiv && map.getDiv();
             if (mapDiv && !mapDiv.id) mapDiv.id = "florida-map";
 
-            draw = new terraDraw.TerraDraw({
-              adapter: new terraDrawGoogleMapsAdapter.TerraDrawGoogleMapsAdapter({
+            draw = new TerraDraw({
+              adapter: new TerraDrawGoogleMapsAdapter({
                 lib: api,
                 map,
                 coordinatePrecision: 9,
                 isolatedData: true,
               }),
               modes: [
-                new terraDraw.TerraDrawPolygonMode({
+                new TerraDrawPolygonMode({
                   styles: {
                     fillColor: "#0f5c56",
                     fillOpacity: 0.28,
@@ -362,7 +445,7 @@
                     outlineWidth: 2,
                   },
                 }),
-                new terraDraw.TerraDrawSelectMode({
+                new TerraDrawSelectMode({
                   flags: {
                     polygon: {
                       feature: {
@@ -435,6 +518,24 @@
             location.reload();
           }
 
+          async function applyApiKey() {
+            const next = apiKeyDraft.value.trim();
+            if (!next || (next === apiKey.value && mapEnabled.value)) return;
+            storeKey(next);
+            if (draw) {
+              draw.stop();
+              draw = null;
+            }
+            drawingReady.value = false;
+            mode.value = "";
+            drawError.value = "";
+            polygons.value = [];
+            mapEnabled.value = false;
+            apiKey.value = next;
+            await nextTick();
+            mapEnabled.value = true;
+          }
+
           function setDrawMode(next) {
             if (!draw || !drawingReady.value) return;
             draw.setMode(next);
@@ -447,6 +548,42 @@
             polygons.value = [];
             draw.setMode("polygon");
             mode.value = "polygon";
+          }
+
+          function fitToFeatures(features) {
+            const api = mapRef.value && mapRef.value.api;
+            const map = mapRef.value && mapRef.value.map;
+            if (!api || !map) return;
+            const bounds = new api.LatLngBounds();
+            for (const feature of features) {
+              const ring = feature.geometry.coordinates && feature.geometry.coordinates[0];
+              if (!Array.isArray(ring)) continue;
+              for (const pair of ring) bounds.extend({ lng: Number(pair[0]), lat: Number(pair[1]) });
+            }
+            map.fitBounds(bounds, 48);
+          }
+
+          function addPassedPolygon() {
+            addError.value = "";
+            if (!draw || !drawingReady.value) {
+              addError.value = "The map is not ready yet.";
+              return;
+            }
+            let features;
+            try {
+              features = [featureFromRing(pointsFromCoordinateText(polygonInput.value))];
+            } catch (error) {
+              addError.value = error && error.message ? error.message : "That polygon could not be read.";
+              return;
+            }
+            const results = draw.addFeatures(features);
+            const failed = (results || []).filter((result) => !result.valid);
+            if (failed.length) {
+              addError.value = failed.map((result) => result.reason).filter(Boolean).join(" ") || "That polygon could not be added.";
+              return;
+            }
+            syncPolygons();
+            fitToFeatures(features);
           }
 
           async function copyPoints() {
@@ -473,6 +610,7 @@
             center,
             zoom,
             apiKey,
+            apiKeyDraft,
             mapEnabled,
             mapRef,
             polygons,
@@ -480,14 +618,18 @@
             drawingReady,
             drawError,
             copyState,
+            polygonInput,
+            addError,
             hint,
             pointCount,
             formatPair,
             closesRing,
             newCenter,
+            applyApiKey,
             setDrawMode,
             clearBoundary,
             copyPoints,
+            addPassedPolygon,
           };
         },
         template: `
@@ -497,6 +639,11 @@
                 <h1>Florida boundary</h1>
                 <p class="lede">A random place in Florida. Draw one polygon with Terra Draw and read its longitude, latitude corners here.</p>
               </div>
+              <form class="key-row" @submit.prevent="applyApiKey">
+                <label for="api-key">Google Maps API key</label>
+                <input id="api-key" type="text" v-model="apiKeyDraft" autocomplete="off" spellcheck="false" placeholder="Paste an API key" />
+                <button type="submit" :disabled="!apiKeyDraft.trim()">Use key</button>
+              </form>
               <div class="center-row">
                 <span>Map center <code>{{ formatPair(center) }}</code></span>
                 <button type="button" class="secondary" @click="newCenter">New Florida center</button>
@@ -524,6 +671,18 @@
                   </li>
                 </ol>
               </div>
+              <div class="add-polygon">
+                <label for="polygon-coordinates">Polygon coordinates</label>
+                <textarea
+                  id="polygon-coordinates"
+                  v-model="polygonInput"
+                  spellcheck="false"
+                  placeholder="-82.500000, 27.950000&#10;-82.450000, 27.950000&#10;-82.470000, 27.980000"
+                ></textarea>
+                <p class="hint">One longitude, latitude pair per line.</p>
+                <p v-if="addError" class="error">{{ addError }}</p>
+                <button type="button" :disabled="!drawingReady || !polygonInput.trim()" @click="addPassedPolygon">Add polygon</button>
+              </div>
               <div class="toolbar">
                 <button type="button" :class="{ active: mode === 'polygon' }" :disabled="!drawingReady" @click="setDrawMode('polygon')">Draw polygon</button>
                 <button type="button" :class="{ active: mode === 'select' }" :disabled="!drawingReady" @click="setDrawMode('select')">Edit</button>
@@ -534,6 +693,7 @@
             <section class="map-panel" aria-label="Map">
               <GoogleMap
                 v-if="mapEnabled"
+                :key="apiKey"
                 ref="mapRef"
                 class="map-root"
                 :api-key="apiKey"
@@ -543,14 +703,13 @@
                 language="en"
                 :clickable-icons="false"
                 gesture-handling="greedy"
-                map-type-id="roadmap"
+                map-type-id="satellite"
               />
               <p v-else class="map-placeholder">The map loads here after an API key is saved.</p>
             </section>
           </main>
         `,
       }).mount("#app");
-    }
   </script>
 </body>
 </html>
